@@ -104,7 +104,6 @@ background → neutral-50
 - 组件库兼容变量；
 - ESLint 配置；
 - `@shadcn/lint` 规则；
-- 组件 contracts；
 - AI 项目规则说明。
 
 默认规则包括：
@@ -112,8 +111,7 @@ background → neutral-50
 - `no-arbitrary-values`；
 - `no-raw-colors`；
 - `no-unknown-classes`；
-- `require-static-classes`；
-- `no-restyle`。
+- `require-static-classes`。
 
 规则默认由产品生成。用户可以调整规则级别、添加目录例外和补充自定义组件约定。
 
@@ -144,9 +142,7 @@ npx design-guardrails check
 - 任意值；
 - 原始颜色；
 - 未知工具类；
-- 动态类名；
-- 组件样式错误覆盖；
-- 不符合组件 contracts 的写法。
+- 动态类名。
 
 ### 第九步：查看偏移报告
 
@@ -187,12 +183,13 @@ npx design-guardrails check
 - CI 集成；
 - VS Code 或 Cursor 扩展；
 - 自动修复代码；
+- 组件级 contracts 和精确样式约束；
 - Vue、Svelte 等其他框架；
 - 设计体系质量评估；
 - 自研完整 Linter。
 
 ## 7. 后续阶段
 
-第二阶段增加其他组件库适配器、CLI 的 CI 模式、规则版本管理、历史趋势和更完整的 Token 导入。
+第二阶段增加其他组件库适配器、组件 contracts、CLI 的 CI 模式、规则版本管理、历史趋势和更完整的 Token 导入。
 
 第三阶段增加编辑器扩展、团队策略、实时诊断、多框架支持和更丰富的自动修复能力。
