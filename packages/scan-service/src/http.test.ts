@@ -77,4 +77,20 @@ describe('scan HTTP API', () => {
     })
     expect(reusedUpload.statusCode).toBe(409)
   })
+
+  it('rejects request bodies over the configured limit', async () => {
+    const app = await createScanHttpApp({
+      service: new ScanService({ store: new InMemoryScanSessionStore() }),
+      bodyLimitBytes: 512,
+    })
+    apps.push(app)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/scan-sessions',
+      payload: { projectId: 'x'.repeat(2_000) },
+    })
+
+    expect(response.statusCode).toBe(413)
+  })
 })

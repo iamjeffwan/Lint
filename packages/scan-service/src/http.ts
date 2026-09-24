@@ -10,12 +10,16 @@ export type CreateScanHttpAppOptions = {
   service: ScanService
   corsOrigin?: string | boolean
   logger?: boolean
+  bodyLimitBytes?: number
 }
 
 export async function createScanHttpApp(
   options: CreateScanHttpAppOptions,
 ): Promise<FastifyInstance> {
-  const app = Fastify({ logger: options.logger ?? false })
+  const app = Fastify({
+    logger: options.logger ?? false,
+    bodyLimit: options.bodyLimitBytes ?? 256 * 1024,
+  })
   await app.register(cors, { origin: options.corsOrigin ?? true })
 
   app.post('/api/scan-sessions', async (request, reply) => {
