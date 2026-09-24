@@ -200,7 +200,7 @@ Tailwind 检测需要同时看依赖和实际 CSS：
 
 #### E. 检测组件库
 
-组件库识别采用“官方查询能力优先，产品自有识别器兜底”的方式，不把目录名称或单个依赖包当作充分证据。
+组件库识别采用官方查询能力，不把目录名称或单个依赖包当作充分证据。
 
 每个识别器输出：
 
@@ -219,18 +219,17 @@ npx shadcn@<pinned-version> info --json --cwd <project-root>
 
 官方命令负责读取并校验 `components.json`，解析 aliases（路径别名），识别项目框架、Tailwind 配置、UI 目录和已安装的官方组件。CLI 返回的 JSON 再转换成产品自己的检测模型。
 
-如果官方 CLI 无法运行，才进入备用识别：校验 `components.json` 的官方 schema（配置结构），解析路径别名，并把文件名与官方组件注册表中的名称匹配。备用结果必须标记为“兼容识别”，不能和官方 CLI 结果混同。
+如果官方 CLI 无法运行，检测任务失败并显示具体原因。MVP 不实现备用配置解析器，也不根据目录名称猜测 shadcn。
 
 其他组件库仍然通过依赖包和源码导入识别，但只用于列出候选和提示支持状态，不能把“安装过依赖”当成“项目实际使用”。源码导入分析使用 `@typescript-eslint/typescript-estree`（TypeScript/JSX 语法解析器），只提取导入路径和组件名称，不上传源码内容。
 
 组件库结果需要分级：
 
 - `official`（官方识别）：官方 CLI 成功返回并完成组件解析；
-- `compatible`（兼容识别）：官方配置有效，但只能由产品备用逻辑识别；
-- `partial`（部分识别）：有部分特征，但证据不足；
-- `unknown`（未知）：没有足够证据。
+- `partial`（部分识别）：官方 CLI 返回了项目配置，但组件信息不完整；
+- `unknown`（未知）：官方 CLI 无法确认项目使用 shadcn。
 
-只有 `official` 和用户明确确认的 `compatible` 结果可以作为 shadcn 主要组件库进入后续流程。
+只有 `official` 结果可以自动作为 shadcn 主要组件库进入后续流程。`partial` 和 `unknown` 需要用户选择“仅使用 Tailwind”，MVP 不自动启用 shadcn 适配。
 
 #### F. 生成支持性结论
 
