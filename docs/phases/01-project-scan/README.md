@@ -1,6 +1,12 @@
 # 阶段一：项目导入与本地检测
 
-状态：方案讨论中
+状态：检测方案已确认，待实现
+
+已确认的交互方案：
+
+- 用户复制 CLI 命令到项目目录执行；
+- Web 页面轮询任务状态；
+- 使用短期一次性任务令牌上传结果。
 
 ## 1. 阶段目标
 
@@ -141,6 +147,117 @@ MVP 建议使用方案 A。
 
 ## 5. 检测实现建议
 
+检测分为两条链路：
+
+```text
+项目环境检测
+  判断项目能否接入、主题在哪里、使用了哪些组件库
+
+代码规则检查
+  生成规则包后运行 @shadcn/lint，检查源码是否偏离设计体系
+```
+
+项目环境检测不是 `@shadcn/lint` 的职责。它由 CLI 自己完成；`@shadcn/lint` 在项目接入成功后负责真正的源码规则检查。
+
+### 5.1 环境检测流程
+
+#### A. 定位项目根目录
+
+CLI 从当前目录开始查找 `package.json`。MVP 只支持单应用项目：
+
+- 找不到 `package.json`：提示用户在项目根目录执行；
+- 找到多个 workspace（工作区）：提示 MVP 暂不支持多包仓库；
+- 找到唯一项目根目录：继续检测。
+
+同时识别 npm、pnpm、yarn 或 bun 的 lockfile，并记录包管理器类型。
+
+#### B. 读取项目元数据
+
+读取 `package.json` 的 `dependencies`、`devDependencies` 和 scripts，但不上传完整文件内容。
+
+使用 `semver`（版本比较工具）判断 React、Tailwind CSS 和 ESLint 的版本范围。
+
+#### C. 检测 Tailwind CSS
+
+Tailwind 检测需要同时看依赖和实际 CSS：
+
+1. 检查 `tailwindcss` 依赖版本是否为 v4；
+2. 查找 CSS 文件中的 `@import "tailwindcss"`；
+3. 查找 `@theme`、`@theme inline` 或共享主题文件；
+4. 确认 CSS 文件被项目入口引用；
+5. 如果只有 v3 配置文件，标记为“不支持 Tailwind v3”，不把它误判为已接入。
+
+使用 `fast-glob`（文件扫描工具）定位候选 CSS，使用 `PostCSS`（CSS 解析器）读取指令和变量。
+
+#### D. 检测 ESLint
+
+1. 检查 ESLint 依赖和版本；
+2. 查找 `eslint.config.js`、`eslint.config.mjs` 等配置；
+3. 使用 ESLint 官方 API 加载一个代表性源码文件的配置；
+4. 记录配置是否可解析，不在这一步执行完整项目 Lint。
+
+完整 Lint 运行放在规则包生成之后。
+
+#### E. 检测组件库
+
+组件库识别采用“官方查询能力优先，产品自有识别器兜底”的方式，不把目录名称或单个依赖包当作充分证据。
+
+每个识别器输出：
+
+```text
+名称
+是否检测到
+可信度：high / medium / low
+检测依据
+```
+
+`shadcn/ui` 优先调用固定版本的官方 CLI：
+
+```bash
+npx shadcn@<pinned-version> info --json --cwd <project-root>
+```
+
+官方命令负责读取并校验 `components.json`，解析 aliases（路径别名），识别项目框架、Tailwind 配置、UI 目录和已安装的官方组件。CLI 返回的 JSON 再转换成产品自己的检测模型。
+
+如果官方 CLI 无法运行，才进入备用识别：校验 `components.json` 的官方 schema（配置结构），解析路径别名，并把文件名与官方组件注册表中的名称匹配。备用结果必须标记为“兼容识别”，不能和官方 CLI 结果混同。
+
+其他组件库仍然通过依赖包和源码导入识别，但只用于列出候选和提示支持状态，不能把“安装过依赖”当成“项目实际使用”。源码导入分析使用 `@typescript-eslint/typescript-estree`（TypeScript/JSX 语法解析器），只提取导入路径和组件名称，不上传源码内容。
+
+组件库结果需要分级：
+
+- `official`（官方识别）：官方 CLI 成功返回并完成组件解析；
+- `compatible`（兼容识别）：官方配置有效，但只能由产品备用逻辑识别；
+- `partial`（部分识别）：有部分特征，但证据不足；
+- `unknown`（未知）：没有足够证据。
+
+只有 `official` 和用户明确确认的 `compatible` 结果可以作为 shadcn 主要组件库进入后续流程。
+
+#### F. 生成支持性结论
+
+所有检测结果归一化后，生成一份支持性结论：
+
+```text
+supported       可以进入主题配置
+partially_supported  可以配置基础 Token，但缺少组件适配
+unsupported     当前 MVP 无法接入
+needs_action    需要用户修复环境后重新检测
+```
+
+用户必须先通过 React、Tailwind CSS v4 和 ESLint 的检查，才能进入后续主题配置。检测到其他组件库时，系统列出它们并标记“当前 MVP 暂不支持”，由用户选择 shadcn 或“仅使用 Tailwind”。
+
+### 5.2 代码规则检查流程
+
+项目环境检测通过后，系统生成主题和规则包。CLI 再执行：
+
+1. 将生成的主题文件和规则配置写入临时工作目录或项目配置目录；
+2. 调用项目已有的 ESLint；
+3. 加载 `@shadcn/lint`；
+4. 运行基础规则和组件 contracts；
+5. 把 ESLint 的诊断结果归一化成产品报告；
+6. 只上传文件相对路径、行列位置、规则名、消息和修复建议。
+
+代码内容仍然保留在本地。
+
 CLI 不扫描 `node_modules`、构建产物和环境变量文件。
 
 建议使用成熟工具：
@@ -148,7 +265,7 @@ CLI 不扫描 `node_modules`、构建产物和环境变量文件。
 - `semver`（版本比较）判断依赖版本；
 - `fast-glob`（文件扫描）查找配置和源码；
 - `PostCSS`（CSS 解析）读取 `@import`、`@theme` 和 CSS 变量；
-- TypeScript AST（抽象语法树）解析源码中的组件库导入；
+- `@typescript-eslint/typescript-estree`（TypeScript/JSX 语法解析器）解析源码中的组件库导入；
 - ESLint 官方 API 验证实际配置是否可运行。
 
 需要产品自己实现：
