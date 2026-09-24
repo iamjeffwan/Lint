@@ -293,24 +293,49 @@ Web 查询检测状态和结果
 
 ```json
 {
-  "project": {
-    "framework": "react",
-    "tailwindVersion": "4.3.3",
-    "eslintVersion": "10.11.0"
+  "schemaVersion": 1,
+  "cliVersion": "0.1.0",
+  "packageManager": {
+    "name": "npm",
+    "lockfile": "package-lock.json"
   },
-  "components": [
+  "framework": {
+    "name": "react",
+    "version": "19.2.8",
+    "status": "passed"
+  },
+  "tailwind": {
+    "version": "4.3.3",
+    "cssEntry": "src/index.css",
+    "themeFound": true,
+    "themeImported": true,
+    "status": "passed"
+  },
+  "eslint": {
+    "version": "10.11.0",
+    "configFound": true,
+    "configLoadable": true,
+    "status": "passed"
+  },
+  "shadcn": {
+    "status": "official",
+    "cssEntry": "src/index.css",
+    "components": ["button", "card", "input"],
+    "preset": "base-nova"
+  },
+  "componentLibraries": [
     {
       "name": "shadcn/ui",
-      "detected": true,
-      "confidence": "high"
+      "status": "detected",
+      "confidence": "high",
+      "evidence": ["official shadcn CLI info --json"]
     }
   ],
-  "theme": {
-    "entry": "src/index.css",
-    "found": true,
-    "imported": true
+  "support": {
+    "status": "supported",
+    "blockingIssues": [],
+    "warnings": []
   },
-  "status": "supported",
   "warnings": []
 }
 ```
