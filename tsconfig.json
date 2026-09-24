@@ -10,5 +10,5 @@
     "exactOptionalPropertyTypes": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["packages/**/*.ts", "vitest.config.ts"]
+  "include": ["apps/**/*.ts", "packages/**/*.ts", "vitest.config.ts"]
 }

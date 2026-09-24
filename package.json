@@ -7,6 +7,7 @@
     "packages/*"
   ],
   "scripts": {
+    "dev:server": "tsx apps/server/src/main.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
