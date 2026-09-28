@@ -1,276 +1,76 @@
-# 工单一：检测任务与接口协议
+# 工单一：检测任务与共享协议
 
-## 1. 一张图看完整流程
+当前结果协议：第二版。它只表达项目接入事实，不代表已经建立或检查过完整设计体系。
+
+## 流程与接口
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    actor User as 用户
-    participant Web as Web 页面
+    participant Web as 网页
     participant Server as 服务端
-    participant CLI as 我们的 CLI
-    participant Project as 用户本地项目
-    participant Shadcn as 官方 shadcn CLI
-
-    User->>Web: 点击“开始检测”
-    Web->>Server: POST /api/scan-sessions
-    Server->>Server: 创建检测任务
-    Server->>Server: 生成短期一次性令牌
-    Server-->>Web: sessionId、token、expiresAt、command
-    Web-->>User: 显示复制命令
-
-    User->>CLI: 在项目目录执行 scan 命令
-    CLI->>Project: 查找项目根目录和 package.json
-    CLI->>Project: 检查 React、Tailwind v4、ESLint
-    CLI->>Shadcn: shadcn info --json --cwd 项目目录
-    Shadcn-->>CLI: 返回 shadcn 项目和组件信息
-    CLI->>CLI: 组合并校验检测结果 JSON
-
-    CLI->>Server: POST /api/scan-sessions/{id}/result
-    Note over CLI,Server: 使用 Bearer 一次性令牌
-    Server->>Server: 校验任务、令牌和过期时间
-    Server->>Server: 保存结果并立即使令牌失效
+    participant CLI as 本地工具
+    Web->>Server: 创建任务：项目编号
+    Server-->>Web: 任务编号、临时令牌、期限、含服务地址的命令
+    Note over Web,CLI: 用户在项目目录执行命令
+    CLI->>CLI: 查询项目事实，保存不含令牌的快照
+    CLI->>Server: 提交结果：任务令牌与结构化结果
     Server-->>CLI: 接收成功
-
-    loop 页面轮询任务状态
-        Web->>Server: GET /api/scan-sessions/{id}
-        Server-->>Web: 当前状态和结果
+    loop 轮询
+        Web->>Server: 查询任务编号
+        Server-->>Web: 等待、完成或过期；已保存结果
     end
-
-    Web-->>User: 展示技术栈、组件库和支持性结论
 ```
 
-## 2. 四个核心对象
+接口保持三项：
 
-```mermaid
-flowchart LR
-    A[检测任务\nscan session] --> B[一次性令牌\n短期上传凭证]
-    A --> C[检测结果\n结构化 JSON]
-    C --> D[支持性结论\nsupported / needs action]
-    B --> E[CLI 上传结果]
-    E --> C
-    D --> F[Web 页面展示]
-```
+- `POST /api/scan-sessions`（创建任务）：请求含 `projectId`（项目编号）；成功状态码 201。
+- `POST /api/scan-sessions/:id/result`（上传结果）：请求体为 `{ result: ... }`（结果外层对象），请求头携带一次性令牌；成功状态码 202。
+- `GET /api/scan-sessions/:id`（查询任务）：返回任务状态、结果和错误；成功状态码 200。
 
-### 检测任务
+创建响应含 `sessionId`（任务编号）、`token`（临时令牌）、`expiresAt`（到期时间）、`command`（执行命令）。命令统一用 `--session`（任务编号参数），并含 `--server`（服务地址）。命令行包尚未公开发布，本地联调使用本地安装包。
 
-检测任务表示一次具体的项目检测。它不是用户项目本身，同一个项目可以反复创建新的检测任务。
-
-任务状态：
-
-```text
-created（已创建）
-waiting_cli（等待 CLI）
-running（检测中）
-completed（已完成）
-failed（失败）
-expired（已过期）
-```
-
-### 一次性令牌
-
-一次性令牌是服务端为单次任务生成的短期上传凭证。它只允许 CLI 上传当前任务的结果，成功上传后立即失效。
+## 任务状态
 
 ```mermaid
 stateDiagram-v2
-    [*] --> 未使用
-    未使用 --> 已使用: CLI 成功上传结果
-    未使用 --> 已过期: 超过有效时间
-    已使用 --> 拒绝再次上传
-    已过期 --> 拒绝上传
-```
-
-服务端只保存令牌哈希值，不保存明文令牌。令牌不承担用户登录功能，也不作为长期 API Key（接口密钥）。
-
-## 3. 任务状态变化
-
-```mermaid
-stateDiagram-v2
-    [*] --> created: Web 创建任务
-    created --> waiting_cli: 返回命令和令牌
-    waiting_cli --> running: CLI 开始扫描
-    running --> completed: 结果校验并保存成功
-    running --> failed: 本地检测或上传失败
-    waiting_cli --> expired: 令牌过期
-    running --> expired: 任务超时
-    failed --> waiting_cli: 用户重新生成任务
+    [*] --> waiting_cli: 创建并签发令牌
+    waiting_cli --> completed: 有效结果已保存
+    waiting_cli --> expired: 到期后查询或上传
     completed --> [*]
     expired --> [*]
 ```
 
-## 4. 结果模型
+`waiting_cli`（等待结果）、`completed`（结果已接收）和 `expired`（已过期）是当前实现的全部服务状态。检测失败或断网暂由本地工具提示，不存在开始检测或失败上报接口。过期在查询或上传时按时间判定，不依赖后台定时任务。
 
-检测结果只描述项目环境和检测结论，不包含源码正文、环境变量或密钥。
+完成只说明结果已保存，不说明项目受支持；项目是否可继续由结果中的支持性结论表达。
 
-```mermaid
-classDiagram
-    class ScanResult {
-      schemaVersion: number
-      cliVersion: string
-      packageManager: PackageManager
-      framework: FrameworkResult
-      tailwind: TailwindResult
-      eslint: ESLintResult
-      shadcn: ShadcnResult
-      support: SupportResult
-      warnings: Warning[]
-    }
+## 结果结构
 
-    class PackageManager {
-      name: npm | pnpm | yarn | bun
-      lockfile: string
-    }
+| 字段 | 含义 |
+|---|---|
+| `schemaVersion`（协议版本） | 当前为 2 |
+| `cliVersion`（工具版本） | 产生结果的工具版本 |
+| `tailwind`（样式框架事实） | 已安装、未安装、未知或未检测，以及实际版本；未检测不伪造版本 |
+| `theme`（主题定位事实） | 定位到路径、未找到、查询失败或未查询；有路径时说明官方查询或用户确认来源 |
+| `shadcn`（组件方案事实） | 已配置、未配置、查询失败或未查询；配置时附官方返回的信息 |
+| `componentLibraries`（组件候选） | 候选名称、状态和依据；不再使用没有评分依据的可信度等级 |
+| `support`（接入结论） | 可继续程度及阻断原因、提示 |
+| `warnings`（诊断提示） | 固定原因码、说明和严重程度 |
 
-    class FrameworkResult {
-      name: react
-      version: string
-      status: passed | failed
-    }
+删除框架名称、代码检查器可加载性、主题是否全项目引用、必填包管理器画像。那些不是当前接入目标，不能由协议逼着检测器编造。
 
-    class TailwindResult {
-      version: string
-      cssEntry: string
-      themeFound: boolean
-      themeImported: boolean
-      status: passed | failed
-    }
+主题路径只能是项目内部相对路径；未知字段拒绝接收。路径查询不证明应用实际加载，也不证明该文件包含全部设计令牌。
 
-    class ESLintResult {
-      version: string
-      configFound: boolean
-      configLoadable: boolean
-      status: passed | failed
-    }
+## 令牌与错误
 
-    class ShadcnResult {
-      status: official | partial | unknown
-      cssEntry: string
-      components: string[]
-      preset: string
-    }
+令牌默认十分钟有效，服务端仅保存哈希，成功提交后不可再次写入；网络丢失响应后由客户端查询并比对结果确认是否成功。令牌不保存在快照里。
 
-    class SupportResult {
-      status: supported | partially_supported | unsupported | needs_action
-      blockingIssues: string[]
-      warnings: string[]
-    }
+请求格式错误返回 400；缺少或无效令牌返回 401；任务不存在返回 404；已使用返回 409；过期返回 410；正文过大返回 413；内部存储等错误返回脱敏的 500。
 
-    ScanResult --> PackageManager
-    ScanResult --> FrameworkResult
-    ScanResult --> TailwindResult
-    ScanResult --> ESLintResult
-    ScanResult --> ShadcnResult
-    ScanResult --> SupportResult
-```
+配置生成或编辑主题不需要此处预先安装代码检查器，正式规则执行再检查宿主与解析器。
 
-结果示例：
+## 第二版兼容边界
 
-```json
-{
-  "schemaVersion": 1,
-  "cliVersion": "0.1.0",
-  "packageManager": {
-    "name": "npm",
-    "lockfile": "package-lock.json"
-  },
-  "framework": {
-    "name": "react",
-    "version": "19.2.8",
-    "status": "passed"
-  },
-  "tailwind": {
-    "version": "4.3.3",
-    "cssEntry": "src/index.css",
-    "themeFound": true,
-    "themeImported": true,
-    "status": "passed"
-  },
-  "eslint": {
-    "version": "10.11.0",
-    "configFound": true,
-    "configLoadable": true,
-    "status": "passed"
-  },
-  "shadcn": {
-    "status": "official",
-    "cssEntry": "src/index.css",
-    "components": ["button", "card", "input"],
-    "preset": "base-nova"
-  },
-  "support": {
-    "status": "supported",
-    "blockingIssues": [],
-    "warnings": []
-  },
-  "warnings": []
-}
-```
+旧协议的快照明确拒绝，提示重新扫描。数据库历史记录保留，但旧结果查询返回无结果及版本不支持提示，不悄悄转换为新的事实。项目尚未公开发布，不继续维护没有用户需求的旧命令参数别名。
 
-## 5. 接口协议
-
-### 创建检测任务
-
-```text
-POST /api/scan-sessions
-```
-
-返回：
-
-```json
-{
-  "sessionId": "scan_123",
-  "token": "短期一次性令牌",
-  "expiresAt": "2026-09-24T12:00:00Z",
-  "command": "npx @design-guardrails/cli scan --project scan_123 --token 短期一次性令牌"
-}
-```
-
-### CLI 上传结果
-
-```text
-POST /api/scan-sessions/{sessionId}/result
-Authorization: Bearer <token>
-Content-Type: application/json
-```
-
-请求体是 `ScanResult`（检测结果模型）。
-
-成功返回：
-
-```json
-{
-  "accepted": true,
-  "status": "completed"
-}
-```
-
-### Web 查询任务状态
-
-```text
-GET /api/scan-sessions/{sessionId}
-```
-
-返回：
-
-```json
-{
-  "sessionId": "scan_123",
-  "status": "completed",
-  "result": {},
-  "error": null
-}
-```
-
-## 6. 协议边界
-
-服务端负责任务、令牌、状态和结果保存；CLI 负责本地读取和检测；Web 负责创建任务、复制命令、轮询状态和展示结果。
-
-CLI 不上传：
-
-- 源码正文；
-- `.env`（环境变量）文件；
-- 密钥和令牌；
-- 完整配置文件内容；
-- `node_modules`（依赖目录）。
-
-工单一完成后，工单二、工单三和工单四可以依据这份文档并行实现服务端、Web 页面和 CLI。
+新结果模型由共享协议包直接校验，示例由自动化测试覆盖；说明不再维护一份容易与实现漂移的完整复制字段示例。

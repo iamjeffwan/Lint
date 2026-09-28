@@ -1,0 +1,20 @@
+[
+  {
+    "name": "remove-reconciliation",
+    "exitCode": 1,
+    "expectedRegression": true,
+    "restored": true
+  },
+  {
+    "name": "remove-single-use-check",
+    "exitCode": 1,
+    "expectedRegression": true,
+    "restored": true
+  },
+  {
+    "name": "remove-persistence",
+    "exitCode": 1,
+    "expectedRegression": true,
+    "restored": true
+  }
+]

@@ -22,3 +22,5 @@ GET /api/scan-sessions/:sessionId
 ```
 
 接口字段使用 `packages/scan-contract`（共享协议包）中的校验模型。
+
+使用对外服务域名时设置 PUBLIC_ORIGIN（公开服务地址）；跨源网页联调设置 WEB_ORIGIN（允许的网页来源）。默认不允许任意网页跨域访问。任务状态仅有等待、完成、过期。
