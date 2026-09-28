@@ -8,3 +8,5 @@ build/
 coverage/
 *.log
 data/
+artifacts/
+*.tgz

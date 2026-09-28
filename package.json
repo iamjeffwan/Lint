@@ -7,6 +7,9 @@
     "packages/*"
   ],
   "scripts": {
+    "build:cli": "npm run build --workspace @design-guardrails/cli",
+    "pack:cli": "node scripts/pack-cli.mjs",
+    "verify:cli-package": "tsx scripts/verify-cli-package.ts",
     "dev:server": "tsx apps/server/src/main.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -14,6 +17,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^24.13.3",
+    "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"

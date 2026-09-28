@@ -1,0 +1,18 @@
+{
+  "name": "@design-guardrails/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local project scan runner and result transport",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "bin": { "design-guardrails": "dist/main.js" },
+  "files": ["dist/main.js", "dist/THIRD_PARTY_LICENSES.txt"],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@design-system-guardrails/scan-contract": "0.1.0",
+    "commander": "^14.0.0"
+  }
+}
