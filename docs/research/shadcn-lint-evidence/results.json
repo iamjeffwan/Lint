@@ -1,0 +1,182 @@
+{
+  "packageVersion": "0.2.0",
+  "nodeVersion": "v24.13.0",
+  "rules": [
+    "no-restyle",
+    "no-raw-colors",
+    "no-arbitrary-values",
+    "no-inline-styles",
+    "require-static-classes",
+    "no-unknown-classes"
+  ],
+  "ruleMetadata": {
+    "no-restyle": {
+      "fixable": null,
+      "hasSuggestions": false
+    },
+    "no-raw-colors": {
+      "fixable": null,
+      "hasSuggestions": true
+    },
+    "no-arbitrary-values": {
+      "fixable": null,
+      "hasSuggestions": true
+    },
+    "no-inline-styles": {
+      "fixable": null,
+      "hasSuggestions": false
+    },
+    "require-static-classes": {
+      "fixable": null,
+      "hasSuggestions": false
+    },
+    "no-unknown-classes": {
+      "fixable": null,
+      "hasSuggestions": true
+    }
+  },
+  "api": {
+    "keys": [
+      "projectFor",
+      "themeFileFor",
+      "colorTokensFor",
+      "componentsFor",
+      "variantDefinitionsOf",
+      "variantNamesFor"
+    ],
+    "themeFile": "src/theme.css",
+    "colors": [
+      "primary"
+    ]
+  },
+  "results": [
+    {
+      "name": "legalTheme",
+      "text": "<div className=\"bg-primary p-4\" />",
+      "messages": []
+    },
+    {
+      "name": "arbitrarySpacing",
+      "text": "<div className=\"p-[13px]\" />",
+      "messages": [
+        {
+          "rule": "shadcn/no-arbitrary-values",
+          "message": "\"p-[13px]\" hardcodes an off-token value. Use \"p-3.25\" instead (same value, on the scale).",
+          "suggestions": 1
+        }
+      ]
+    },
+    {
+      "name": "derivedSpacing",
+      "text": "<div className=\"p-3.25\" />",
+      "messages": []
+    },
+    {
+      "name": "rawPalette",
+      "text": "<div className=\"bg-blue-500\" />",
+      "messages": [
+        {
+          "rule": "shadcn/no-raw-colors",
+          "message": "\"bg-blue-500\" uses the raw Tailwind palette and no declared theme color is close to it. Use one of: primary, or declare --color-<name> in src/theme.css for a new color.",
+          "suggestions": 0
+        }
+      ]
+    },
+    {
+      "name": "undefinedColor",
+      "text": "<div className=\"bg-notdeclared\" />",
+      "messages": [
+        {
+          "rule": "shadcn/no-raw-colors",
+          "message": "\"bg-notdeclared\" is not a declared theme color. Use one of: primary. To add a color, declare --color-<name> in src/theme.css first.",
+          "suggestions": 0
+        }
+      ]
+    },
+    {
+      "name": "undefinedVariable",
+      "text": "<div className=\"bg-(--not-declared)\" />",
+      "messages": []
+    },
+    {
+      "name": "builtInColor",
+      "text": "<div className=\"bg-white\" />",
+      "messages": []
+    },
+    {
+      "name": "plainCSSClass",
+      "text": "<div className=\"legacy\" />",
+      "messages": []
+    },
+    {
+      "name": "typo",
+      "text": "<div className=\"flex-cols\" />",
+      "messages": [
+        {
+          "rule": "shadcn/no-unknown-classes",
+          "message": "\"flex-cols\" is not a class this project's Tailwind knows, so no CSS is generated for it. Did you mean \"flex-col\"?",
+          "suggestions": 1
+        }
+      ]
+    },
+    {
+      "name": "inlinePadding",
+      "text": "<div style={{padding: \"13px\"}} />",
+      "messages": [
+        {
+          "rule": "shadcn/no-inline-styles",
+          "message": "Inline style sets padding. Style through classes; use CSS custom properties for dynamic values.",
+          "suggestions": 0
+        }
+      ]
+    },
+    {
+      "name": "customPropPadding",
+      "text": "<div className=\"p-(--local)\" style={{\"--local\":\"13px\"}} />",
+      "messages": []
+    },
+    {
+      "name": "dynamicNative",
+      "text": "export function X({tone}) { return <div className={`bg-${tone}`} /> }",
+      "messages": []
+    },
+    {
+      "name": "dynamicComponent",
+      "text": "import {Button} from \"./ui/button\"; export function X({tone}) { return <Button className={`bg-${tone}`} /> }",
+      "messages": [
+        {
+          "rule": "shadcn/require-static-classes",
+          "message": "Dynamically built className on <Button> cannot be checked. Use static class strings.",
+          "suggestions": 0
+        }
+      ]
+    },
+    {
+      "name": "restyle",
+      "text": "import {Button} from \"./ui/button\"; <Button className=\"p-4\" />",
+      "messages": [
+        {
+          "rule": "shadcn/no-restyle",
+          "message": "\"p-4\" is not allowed on <Button>: <Button> owns its spacing. For space around it, use gap on the parent.",
+          "suggestions": 0
+        }
+      ]
+    },
+    {
+      "name": "styleElement",
+      "text": "<style>{\".thing { padding: 13px }\"}</style>",
+      "messages": [
+        {
+          "rule": "shadcn/no-inline-styles",
+          "message": "A <style> element injects CSS outside the design system. Use classes, or declare the rule in your theme CSS.",
+          "suggestions": 0
+        }
+      ]
+    }
+  ],
+  "autoFix": {
+    "output": null,
+    "errors": 1
+  },
+  "strictCustomProperties": []
+}
