@@ -1,99 +1,40 @@
 import { describe, expect, it } from 'vitest'
-import {
-  createScanSessionResponseSchema,
-  getScanSessionResponseSchema,
-  scanResultSchema,
-  uploadScanResultRequestSchema,
-} from './index.js'
+import { scanResultSchema, getScanSessionResponseSchema, createScanSessionResponseSchema } from './index.js'
 
-const validResult = {
-  schemaVersion: 1 as const,
+const minimal = {
+  schemaVersion: 2,
   cliVersion: '0.1.0',
-  packageManager: {
-    name: 'npm' as const,
-    lockfile: 'package-lock.json',
-  },
-  framework: {
-    name: 'react' as const,
-    version: '19.2.8',
-    status: 'passed' as const,
-  },
-  tailwind: {
-    version: '4.3.3',
-    cssEntry: 'src/index.css',
-    themeFound: true,
-    themeImported: true,
-    status: 'passed' as const,
-  },
-  eslint: {
-    version: '10.11.0',
-    configFound: true,
-    configLoadable: true,
-    status: 'passed' as const,
-  },
-  shadcn: {
-    status: 'official' as const,
-    cssEntry: 'src/index.css',
-    components: ['button', 'card', 'input'],
-    preset: 'base-nova',
-  },
-  componentLibraries: [
-    {
-      name: 'shadcn/ui',
-      status: 'detected' as const,
-      confidence: 'high' as const,
-      evidence: ['official shadcn CLI info --json'],
-    },
-  ],
-  support: {
-    status: 'supported' as const,
-    blockingIssues: [],
-    warnings: [],
-  },
+  tailwind: { status: 'not_installed', version: null },
+  theme: { status: 'not_found', path: null, source: null },
+  shadcn: { status: 'not_checked' },
+  componentLibraries: [],
+  support: { status: 'needs_action', blockingIssues: ['样式框架未安装'], warnings: [] },
   warnings: [],
 }
 
 describe('scan contract', () => {
-  it('accepts a complete environment result', () => {
-    expect(scanResultSchema.parse(validResult)).toEqual(validResult)
-    expect(
-      uploadScanResultRequestSchema.parse({ result: validResult }).result,
-    ).toEqual(validResult)
+  it('accepts missing dependencies and theme without inventing framework or lint facts', () => {
+    expect(scanResultSchema.parse(minimal)).toEqual(minimal)
   })
-
-  it('rejects absolute paths so local paths do not leave the project', () => {
-    expect(() =>
-      scanResultSchema.parse({
-        ...validResult,
-        tailwind: { ...validResult.tailwind, cssEntry: 'C:\\secret\\index.css' },
-      }),
-    ).toThrow(/relative to the detected project root/)
+  it('rejects obsolete fields, old schema, and arbitrary uploaded source', () => {
+    for (const extra of [{ framework: { name: 'react' } }, { eslint: {} }, { source: 'private' }, { schemaVersion: 1 }]) {
+      expect(scanResultSchema.safeParse({ ...minimal, ...extra }).success).toBe(false)
+    }
   })
-
-  it('accepts a nullable result while a task is waiting', () => {
-    expect(
-      getScanSessionResponseSchema.parse({
-        sessionId: 'scan_123',
-        status: 'waiting_cli',
-        result: null,
-        error: null,
-      }),
-    ).toEqual({
-      sessionId: 'scan_123',
-      status: 'waiting_cli',
-      result: null,
-      error: null,
-    })
+  it.each(['C:\\secret\\index.css', 'C:index.css', '../index.css', 'src/../../index.css', '/tmp/index.css', '//host/file.css', 'src\\..\\file.css'])('rejects out-of-project path %s', (path) => {
+    expect(scanResultSchema.safeParse({ ...minimal, theme: { status: 'located', source: 'official_query', path } }).success).toBe(false)
   })
-
+  it('accepts actual theme paths without claiming they are imported everywhere', () => {
+    expect(scanResultSchema.safeParse({ ...minimal, theme: { status: 'located', source: 'official_query', path: 'src/theme.css' } }).success).toBe(true)
+    expect(scanResultSchema.safeParse({ ...minimal, theme: { status: 'located', source: 'official_query', path: null } }).success).toBe(false)
+    expect(scanResultSchema.safeParse({ ...minimal, tailwind: { status: 'installed', version: null } }).success).toBe(false)
+  })
+  it('accepts waiting tasks, rejects unimplemented running state', () => {
+    const task = { sessionId: 'scan_123', status: 'waiting_cli', result: null, error: null }
+    expect(getScanSessionResponseSchema.parse(task)).toEqual(task)
+    expect(getScanSessionResponseSchema.safeParse({ ...task, status: 'running' }).success).toBe(false)
+  })
   it('requires an offset-aware expiration time', () => {
-    expect(() =>
-      createScanSessionResponseSchema.parse({
-        sessionId: 'scan_123',
-        token: 'token',
-        expiresAt: '2026-09-24T12:00:00',
-        command: 'npx @design-guardrails/cli scan',
-      }),
-    ).toThrow()
+    expect(createScanSessionResponseSchema.safeParse({ sessionId: 'scan_123', token: 'token', expiresAt: '2026-09-24T12:00:00', command: 'example' }).success).toBe(false)
   })
 })

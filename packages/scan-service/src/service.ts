@@ -45,7 +45,7 @@ export class ScanService {
     this.cliPackageName = options.cliPackageName ?? DEFAULT_CLI_PACKAGE
   }
 
-  createSession(input: CreateScanSessionRequest): CreateScanSessionResponse {
+  createSession(input: CreateScanSessionRequest, serverUrl = 'http://127.0.0.1:3001'): CreateScanSessionResponse {
     const request = createScanSessionRequestSchema.parse(input)
     const createdAt = this.now()
     const token = randomBytes(32).toString('base64url')
@@ -69,18 +69,19 @@ export class ScanService {
       sessionId,
       token,
       expiresAt: expiresAt.toISOString(),
-      command: `npx ${this.cliPackageName} scan --project ${sessionId} --token ${token}`,
+      command: `npx ${this.cliPackageName} scan --session ${sessionId} --token ${token} --server ${serverUrl}`,
     })
   }
 
   getSession(sessionId: string): GetScanSessionResponse {
     const session = this.getRequiredSession(sessionId)
     this.expireIfNeeded(session)
+    const parsed = scanResultSchema.safeParse(session.result)
     return getScanSessionResponseSchema.parse({
       sessionId: session.id,
       status: session.status,
-      result: session.result,
-      error: session.error,
+      result: parsed.success ? parsed.data : null,
+      error: session.result && !parsed.success ? { code: 'RESULT_VERSION_UNSUPPORTED', message: 'Stored result uses an older protocol. Create a new scan.' } : session.error,
     })
   }
 
@@ -135,16 +136,6 @@ export class ScanService {
     return { accepted: true, status: 'completed' }
   }
 
-  failSession(sessionId: string, code: string, message: string) {
-    const session = this.getRequiredSession(sessionId)
-    if (session.status === 'completed' || session.status === 'expired') {
-      return
-    }
-    session.status = 'failed'
-    session.error = { code, message }
-    this.options.store.update(session)
-  }
-
   private getRequiredSession(sessionId: string) {
     const session = this.options.store.get(sessionId)
     if (!session) {
@@ -160,7 +151,6 @@ export class ScanService {
   private expireIfNeeded(session: StoredScanSession) {
     if (
       session.status !== 'completed' &&
-      session.status !== 'failed' &&
       new Date(session.tokenExpiresAt).getTime() <= this.now().getTime()
     ) {
       session.status = 'expired'

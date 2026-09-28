@@ -11,6 +11,41 @@ afterEach(async () => {
 })
 
 describe('scan HTTP API', () => {
+  it('returns server failures as sanitized 500 responses and validation failures as 400', async () => {
+    const store = new InMemoryScanSessionStore()
+    store.create = () => { throw new Error('secret database path') }
+    const app = await createScanHttpApp({ service: new ScanService({ store }) })
+    apps.push(app)
+    const failed = await app.inject({ method: 'POST', url: '/api/scan-sessions', payload: { projectId: 'p' } })
+    expect(failed.statusCode).toBe(500)
+    expect(failed.body).not.toContain('secret database path')
+    const invalid = await app.inject({ method: 'POST', url: '/api/scan-sessions', payload: {} })
+    expect(invalid.statusCode).toBe(400)
+  })
+
+  it('uses the configured service origin and does not reflect arbitrary browser origins', async () => {
+    const app = await createScanHttpApp({
+      service: new ScanService({ store: new InMemoryScanSessionStore() }),
+      publicOrigin: 'https://api.example.com',
+    })
+    apps.push(app)
+    const response = await app.inject({ method: 'POST', url: '/api/scan-sessions',
+      headers: { origin: 'https://unrelated.example.com', host: 'attacker.example' }, payload: { projectId: 'p' } })
+    expect(response.json().command).toContain('--server https://api.example.com')
+    expect(response.json().command).toContain('--session ')
+    expect(response.headers['access-control-allow-origin']).toBeUndefined()
+    expect(response.headers['cache-control']).toBe('no-store')
+  })
+
+  it('does not generate credentials for a remote insecure origin the CLI would reject', async () => {
+    const store = new InMemoryScanSessionStore()
+    const app = await createScanHttpApp({ service: new ScanService({ store }), publicOrigin: 'http://remote.example' })
+    apps.push(app)
+    const response = await app.inject({ method: 'POST', url: '/api/scan-sessions', payload: { projectId: 'p' } })
+    expect(response.statusCode).toBe(500)
+    expect(response.body).not.toContain('token')
+  })
+
   it('creates, uploads, and reads a scan session', async () => {
     const app = await createScanHttpApp({
       service: new ScanService({ store: new InMemoryScanSessionStore() }),

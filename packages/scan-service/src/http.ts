@@ -1,5 +1,6 @@
 import cors from '@fastify/cors'
-import Fastify, { type FastifyInstance } from 'fastify'
+import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify'
+import { ZodError } from 'zod'
 import {
   createScanSessionRequestSchema,
   uploadScanResultRequestSchema,
@@ -11,6 +12,7 @@ export type CreateScanHttpAppOptions = {
   corsOrigin?: string | boolean
   logger?: boolean
   bodyLimitBytes?: number
+  publicOrigin?: string
 }
 
 export async function createScanHttpApp(
@@ -20,12 +22,22 @@ export async function createScanHttpApp(
     logger: options.logger ?? false,
     bodyLimit: options.bodyLimitBytes ?? 256 * 1024,
   })
-  await app.register(cors, { origin: options.corsOrigin ?? true })
+  await app.register(cors, { origin: options.corsOrigin ?? false })
+  app.addHook('onSend', async (_request, reply) => { reply.header('Cache-Control', 'no-store') })
 
   app.post('/api/scan-sessions', async (request, reply) => {
     try {
       const body = createScanSessionRequestSchema.parse(request.body)
-      return reply.code(201).send(options.service.createSession(body))
+      // 公开部署需配置 PUBLIC_ORIGIN；本地直接使用实际监听端口，不信任 Host 头。
+      const port = request.raw.socket.localPort
+      const origin = options.publicOrigin ?? `http://127.0.0.1:${port ?? 3001}`
+      const url = new URL(origin)
+      const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+      if (url.origin !== origin || url.username || url.password ||
+        (url.protocol !== 'https:' && !(local && url.protocol === 'http:'))) {
+        throw new Error('Invalid public origin')
+      }
+      return reply.code(201).send(options.service.createSession(body, origin))
     } catch (error) {
       return sendError(reply, error)
     }
@@ -72,14 +84,16 @@ function readBearerToken(header: string | undefined) {
   return match[1]
 }
 
-function sendError(reply: { code: (statusCode: number) => { send: (body: unknown) => unknown } }, error: unknown) {
+function sendError(reply: FastifyReply, error: unknown) {
   if (error instanceof ScanServiceError) {
     return reply.code(error.statusCode).send({
       error: { code: error.code, message: error.message },
     })
   }
 
-  return reply.code(400).send({
+  if (error instanceof ZodError) return reply.code(400).send({
     error: { code: 'INVALID_REQUEST', message: 'The request is invalid.' },
   })
+  reply.log.error({ code: 'SCAN_INTERNAL_ERROR' }, 'Scan request failed internally')
+  return reply.code(500).send({ error: { code: 'SCAN_INTERNAL_ERROR', message: 'The service could not complete the request.' } })
 }

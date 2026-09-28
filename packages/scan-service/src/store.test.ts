@@ -1,19 +1,12 @@
-import { mkdtemp, rm } from 'node:fs/promises'
-import os from 'node:os'
+import { mkdir, mkdtemp } from 'node:fs/promises'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { SqliteScanSessionStore } from './store.js'
-
-const temporaryDirectories: string[] = []
-
-afterEach(async () => {
-  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
-})
 
 describe('SqliteScanSessionStore', () => {
   it('keeps a task after opening a new store for the same database', async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), 'scan-service-'))
-    temporaryDirectories.push(directory)
+    await mkdir('artifacts', { recursive: true })
+    const directory = await mkdtemp(path.resolve('artifacts', 'scan-service-'))
     const databasePath = path.join(directory, 'sessions.sqlite')
     const first = new SqliteScanSessionStore(databasePath)
 

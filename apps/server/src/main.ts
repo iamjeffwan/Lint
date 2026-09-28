@@ -8,11 +8,15 @@ await mkdir(dataDirectory, { recursive: true })
 
 const store = new SqliteScanSessionStore(path.join(dataDirectory, 'scan-sessions.sqlite'))
 const service = new ScanService({ store })
-const app = await createScanHttpApp({ service, logger: true })
+const app = await createScanHttpApp({
+  service, logger: true,
+  ...(process.env.PUBLIC_ORIGIN ? { publicOrigin: process.env.PUBLIC_ORIGIN } : {}),
+  ...(process.env.WEB_ORIGIN ? { corsOrigin: process.env.WEB_ORIGIN } : {}),
+})
 
 const close = async () => {
-  store.close()
   await app.close()
+  store.close()
 }
 
 process.once('SIGINT', close)

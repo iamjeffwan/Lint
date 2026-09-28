@@ -17,17 +17,10 @@ function timeout(value: string) {
   if (!Number.isInteger(n) || n < 100 || n > 120_000) throw new InvalidArgumentError('无效超时')
   return n
 }
-function session(options: { session?: string; project?: string }) {
-  if ((options.session && options.project) || (!options.session && !options.project)) {
-    throw new CliError('SESSION_REQUIRED', '请指定 --session（任务编号）；旧命令也可使用 --project，但不能同时传入。')
-  }
-  return options.session ?? options.project!
-}
 const log = (message: string) => process.stderr.write(`${message}\n`)
 program.command('scan')
   .description('扫描目标目录；真实检测暂未接入，请显式选择通信演示')
-  .option('--session <id>', '检测任务编号')
-  .option('--project <id>', '旧版任务编号参数，与 --session 二选一')
+  .requiredOption('--session <id>', '检测任务编号')
   .requiredOption('--token <token>', '一次性上传令牌，不写入快照')
   .option('--server <url>', '服务地址', 'http://127.0.0.1:3001')
   .option('--cwd <directory>', '项目目录，默认当前目录')
@@ -37,7 +30,7 @@ program.command('scan')
   .action(async (options) => {
     if (options.demo) log('通信演示模式：上传的是测试数据，不代表真实项目检测结论。')
     await runScan({
-      sessionId: session(options), token: options.token, server: options.server,
+      sessionId: options.session, token: options.token, server: options.server,
       directory: options.cwd, cacheDirectory: options.cacheDir, timeoutMs: options.timeout,
     }, { log, ...(options.demo ? { detector: demoDetector } : {}) })
   })

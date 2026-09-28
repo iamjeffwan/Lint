@@ -43,8 +43,8 @@ try {
   })
   assert.equal(response.status, 201)
   const created = createScanSessionResponseSchema.parse(await response.json())
-  const output = await execute(['scan', '--demo', '--session', created.sessionId, '--token', created.token,
-    '--server', server, '--cache-dir', cache])
+  const [, , ...commandArgs] = created.command.split(' ')
+  const output = await execute([...commandArgs, '--demo', '--cache-dir', cache])
   assert(output.includes('服务端已接收结果'))
   assert(!output.includes(created.token), 'CLI output must not contain upload token')
   const queried = await fetch(`${server}/api/scan-sessions/${created.sessionId}`)

@@ -38,14 +38,23 @@ async function context(ttl = 600_000) {
     sessionId: created.sessionId, token: created.token, server, directory,
     cacheDirectory: path.join(directory, 'cache'),
   }
-  return { service, app, options, directory, advance: (ms: number) => { now = new Date(now.getTime() + ms) } }
+  return { service, app, options, command: created.command, directory, advance: (ms: number) => { now = new Date(now.getTime() + ms) } }
 }
 
 describe('CLI delivery', () => {
+  it('executes the generated service command options without supplying a missing server address', async () => {
+    const ctx = await context()
+    const [, , ...args] = ctx.command.split(' ')
+    expect(args).toContain(ctx.options.server)
+    const output = await exec(process.execPath, [binary, ...args, '--demo', '--cache-dir', ctx.options.cacheDirectory], { cwd: ctx.directory })
+    expect(output.stderr).toContain('服务端已接收结果')
+    expect(ctx.service.getSession(ctx.options.sessionId).status).toBe('completed')
+  })
+
   it('runs the built entry in a directory with spaces and returns an explicit demo result', async () => {
     const ctx = await context()
     await writeFile(path.join(ctx.directory, '.env'), 'TEST_SENTINEL=must_stay_local')
-    const out = await exec(process.execPath, [binary, 'scan', '--demo', '--project', ctx.options.sessionId,
+    const out = await exec(process.execPath, [binary, 'scan', '--demo', '--session', ctx.options.sessionId,
       '--token', ctx.options.token, '--server', ctx.options.server, '--cache-dir', ctx.options.cacheDirectory],
     { cwd: ctx.directory })
     expect(out.stderr).toContain('服务端已接收结果')
