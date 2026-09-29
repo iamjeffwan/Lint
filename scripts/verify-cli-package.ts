@@ -13,9 +13,11 @@ const directory = await mkdtemp(path.resolve('artifacts', 'installed-cli-'))
 const database = path.join(directory, 'sessions.sqlite')
 const cache = path.join(directory, 'cache')
 const beforeManifest = await readFile(path.join(project, 'package.json'), 'utf8')
+const beforeComponents = await readFile(path.join(project, 'components.json'), 'utf8')
 const installed = JSON.parse(await readFile(path.join(project, 'node_modules/@design-guardrails/cli/package.json'), 'utf8'))
 assert.equal(installed.name, '@design-guardrails/cli')
-assert.equal(installed.dependencies, undefined, 'Packaged CLI must not fetch private workspace packages')
+assert.deepEqual(installed.dependencies, { '@shadcn/lint': '0.2.0' })
+await readFile(path.join(project, 'node_modules/@design-guardrails/cli/dist/theme-query-worker.js'))
 const store = new SqliteScanSessionStore(database)
 const app = await createScanHttpApp({ service: new ScanService({ store }) })
 const server = await app.listen({ host: '127.0.0.1', port: 0 })
@@ -59,15 +61,47 @@ try {
   assert(!cachedText.includes(project))
   const retried = await execute(['retry', '--file', file, '--token', created.token])
   assert(retried.includes('此前已保存相同结果'))
+
+  const detectionCache = path.join(directory, 'detection-cache')
+  const detectedResponse = await fetch(`${server}/api/scan-sessions`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: 'installed_cli_scan' }),
+  })
+  assert.equal(detectedResponse.status, 201)
+  const detected = createScanSessionResponseSchema.parse(await detectedResponse.json())
+  const [, , ...detectedArgs] = detected.command.split(' ')
+  const detectedOutput = await execute([...detectedArgs, '--cache-dir', detectionCache])
+  assert(detectedOutput.includes('此路径未经过全项目引用审计'))
+  assert(!detectedOutput.includes(detected.token))
+  assert(!detectedOutput.includes(project))
+  const detectedQuery = await fetch(`${server}/api/scan-sessions/${detected.sessionId}`)
+  const detectedTask = getScanSessionResponseSchema.parse(await detectedQuery.json())
+  const tailwind = JSON.parse(await readFile(path.join(project, 'node_modules/tailwindcss/package.json'), 'utf8')) as { version: string }
+  const components = JSON.parse(beforeComponents) as { tailwind: { css: string } }
+  assert.equal(detectedTask.status, 'completed')
+  assert.equal(detectedTask.result?.schemaVersion, 2)
+  assert.deepEqual(detectedTask.result?.tailwind, { status: 'installed', version: tailwind.version })
+  assert.deepEqual(detectedTask.result?.theme, { status: 'located', path: components.tailwind.css, source: 'official_query' })
+  assert.equal(detectedTask.result?.shadcn.status, 'not_checked')
+  assert.deepEqual(detectedTask.result?.support.blockingIssues, [])
+  const [detectionFile] = await readdir(detectionCache)
+  assert(detectionFile)
+  const detectionSnapshot = await readFile(path.join(detectionCache, detectionFile), 'utf8')
+  assert(!detectionSnapshot.includes(detected.token))
+  assert(!detectionSnapshot.includes(project))
   assert.equal(await readFile(path.join(project, 'package.json'), 'utf8'), beforeManifest)
+  assert.equal(await readFile(path.join(project, 'components.json'), 'utf8'), beforeComponents)
   await app.close()
   store.close()
   const reopened = new SqliteScanSessionStore(database)
-  try { assert.equal(reopened.get(created.sessionId)?.status, 'completed') }
+  try {
+    assert.equal(reopened.get(created.sessionId)?.status, 'completed')
+    assert.equal(reopened.get(detected.sessionId)?.status, 'completed')
+  }
   finally { reopened.close() }
   const report = {
-    installedPackage: installed.name, version: installed.version, mode: 'demo',
+    installedPackage: installed.name, version: installed.version, mode: 'demo+project-scan',
     createStatus: response.status, finalStatus: task.status,
+    tailwindVersion: tailwind.version, themePath: components.tailwind.css, shadcnStatus: 'not_checked',
     duplicateConfirmed: true, persistedAfterReopen: true,
     tokenAbsentFromCacheAndOutput: true, projectManifestUnchanged: true,
     verifiedAt: new Date().toISOString(),

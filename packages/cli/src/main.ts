@@ -2,11 +2,12 @@ import { Command, CommanderError, InvalidArgumentError } from 'commander'
 import { CliError } from './errors.js'
 import { demoDetector } from './demo.js'
 import { runScan, runRetry } from './runner.js'
+import { createProjectDetector } from './detect/index.js'
 
 declare const __CLI_VERSION__: string
 const program = new Command()
   .name('design-guardrails')
-  .description('本地项目检测与结果回传；工单四仅提供显式通信演示。')
+  .description('本地样式框架检查、官方主题定位与结果回传。')
   .version(__CLI_VERSION__)
   .exitOverride()
   // 参数中可能带有令牌，不回显解析器生成的原始错误。
@@ -19,7 +20,7 @@ function timeout(value: string) {
 }
 const log = (message: string) => process.stderr.write(`${message}\n`)
 program.command('scan')
-  .description('扫描目标目录；真实检测暂未接入，请显式选择通信演示')
+  .description('检查实际样式框架版本，查询主题路径并回传')
   .requiredOption('--session <id>', '检测任务编号')
   .requiredOption('--token <token>', '一次性上传令牌，不写入快照')
   .option('--server <url>', '服务地址', 'http://127.0.0.1:3001')
@@ -32,7 +33,7 @@ program.command('scan')
     await runScan({
       sessionId: options.session, token: options.token, server: options.server,
       directory: options.cwd, cacheDirectory: options.cacheDir, timeoutMs: options.timeout,
-    }, { log, ...(options.demo ? { detector: demoDetector } : {}) })
+    }, { log, detector: options.demo ? demoDetector : createProjectDetector(__CLI_VERSION__) })
   })
 
 program.command('retry')

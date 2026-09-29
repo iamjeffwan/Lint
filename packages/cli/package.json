@@ -4,15 +4,29 @@
   "private": true,
   "description": "Local project scan runner and result transport",
   "type": "module",
-  "engines": { "node": ">=22" },
-  "bin": { "design-guardrails": "dist/main.js" },
-  "files": ["dist/main.js", "dist/THIRD_PARTY_LICENSES.txt"],
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "design-guardrails": "dist/main.js"
+  },
+  "files": [
+    "dist/main.js",
+    "dist/theme-query-worker.js",
+    "dist/THIRD_PARTY_LICENSES.txt"
+  ],
   "scripts": {
     "build": "node scripts/build.mjs",
     "prepack": "npm run build"
   },
   "devDependencies": {
     "@design-system-guardrails/scan-contract": "0.1.0",
-    "commander": "^14.0.0"
+    "commander": "^14.0.0",
+    "minimatch": "^10.2.6",
+    "semver": "^7.8.5",
+    "yaml": "^2.9.1"
+  },
+  "dependencies": {
+    "@shadcn/lint": "0.2.0"
   }
 }

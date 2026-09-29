@@ -39,13 +39,16 @@ export async function runScan(options: RunnerOptions, dependencies: RunnerDepend
     if (!(await stat(projectDirectory)).isDirectory()) throw new Error('Not a directory')
   } catch { throw new CliError('DIRECTORY_INVALID', '项目目录不存在或不是文件夹。') }
   if (!dependencies.detector) {
-    throw new CliError('DETECTOR_NOT_READY', '真实检测将在工单五、六接入。目前仅可显式使用 --demo（通信演示）验证回传。')
+    throw new CliError('DETECTOR_NOT_READY', '没有配置检测入口，已停止执行。')
   }
   log('项目目录已确认，开始本地检测。')
   let result: ScanResult
   try {
     result = scanResultSchema.parse(await dependencies.detector({ projectDirectory }))
   } catch { throw new CliError('DETECTION_FAILED', '检测未完成或结果不符合协议，未上传。') }
+  if (result.tailwind.status === 'installed') log(`已安装样式框架版本：${result.tailwind.version}`)
+  if (result.theme.status === 'located') log(`官方查询选中的主题：${result.theme.path}；此路径未经过全项目引用审计。`)
+  for (const warning of result.warnings) log(warning.message)
   const record = { cacheVersion: 1 as const, sessionId: options.sessionId, server, result }
   let file: string
   try {

@@ -22,6 +22,21 @@ beforeAll(async () => {
 })
 afterEach(async () => { await Promise.all(resources.splice(0).map((close) => close())) })
 
+async function writeProject(directory: string, files: Record<string, string>) {
+  await mkdir(path.join(directory, '.git'), { recursive: true })
+  for (const [name, content] of Object.entries(files)) {
+    const target = path.join(directory, name)
+    await mkdir(path.dirname(target), { recursive: true })
+    await writeFile(target, content)
+  }
+}
+
+async function scanDirectory(ctx: Awaited<ReturnType<typeof context>>, cwd = ctx.directory) {
+  const out = await exec(process.execPath, [binary, 'scan', '--session', ctx.options.sessionId,
+    '--token', ctx.options.token, '--server', ctx.options.server, '--cwd', cwd, '--cache-dir', ctx.options.cacheDirectory])
+  return { out, task: ctx.service.getSession(ctx.options.sessionId) }
+}
+
 async function context(ttl = 600_000) {
   let now = new Date()
   const store = new InMemoryScanSessionStore()
@@ -177,12 +192,15 @@ describe('CLI delivery', () => {
     expect((await exec(process.execPath, [binary, '--help'])).stdout).toContain('scan')
   })
 
-  it('never reports success from the executable when no real detector is installed', async () => {
+  it('returns an honest missing-project result from the real executable', async () => {
     const ctx = await context()
-    await expect(exec(process.execPath, [binary, 'scan', '--session', ctx.options.sessionId,
-      '--token', ctx.options.token, '--server', ctx.options.server, '--cwd', ctx.directory]))
-      .rejects.toMatchObject({ code: 1 })
-    expect(ctx.service.getSession(ctx.options.sessionId).status).toBe('waiting_cli')
+    await mkdir(path.join(ctx.directory, '.git'))
+    await exec(process.execPath, [binary, 'scan', '--session', ctx.options.sessionId,
+      '--token', ctx.options.token, '--server', ctx.options.server, '--cwd', ctx.directory, '--cache-dir', ctx.options.cacheDirectory])
+    const task = ctx.service.getSession(ctx.options.sessionId)
+    expect(task.status).toBe('completed')
+    expect(task.result?.warnings[0]?.code).toBe('PROJECT_NOT_FOUND')
+    expect(task.result?.tailwind.status).toBe('not_checked')
   })
 
   it('only accepts secure origins or loopback and refuses arbitrary files as retry input', async () => {
@@ -194,5 +212,142 @@ describe('CLI delivery', () => {
     await expect(runRetry(path.join(ctx.directory, '.env'), { token: ctx.options.token })).rejects.toMatchObject({ code: 'CACHE_INVALID' })
     await writeFile(path.join(ctx.directory, 'source.json'), '{"source":"not a scan snapshot"}')
     await expect(runRetry(path.join(ctx.directory, 'source.json'), { token: ctx.options.token })).rejects.toMatchObject({ code: 'CACHE_INVALID' })
+  })
+})
+
+describe('installed project scan', () => {
+  const tailwind = (version: string) => `{"name":"tailwindcss","version":"${version}"}`
+  const theme = '@import "tailwindcss";'
+
+  it('uploads the installed fourth major version and the official theme path', async () => {
+    const ctx = await context()
+    await writeProject(ctx.directory, {
+      'package.json': '{"name":"scanned"}',
+      'node_modules/tailwindcss/package.json': tailwind('4.3.3'),
+      'components.json': '{"tailwind":{"css":"styles/brand.css"}}',
+      'styles/brand.css': '@theme { --color-brand: red; }',
+      'eslint.config.mjs': 'throw new Error("must never execute")',
+    })
+    const { out, task } = await scanDirectory(ctx)
+    expect(out.stderr).toContain('已安装样式框架版本：4.3.3')
+    expect(out.stderr).toContain('官方查询选中的主题：styles/brand.css；此路径未经过全项目引用审计。')
+    expect(out.stdout + out.stderr).not.toContain(ctx.options.token)
+    expect(task.status).toBe('completed')
+    expect(task.result?.schemaVersion).toBe(2)
+    expect(task.result?.tailwind).toEqual({ status: 'installed', version: '4.3.3' })
+    expect(task.result?.theme).toEqual({ status: 'located', path: 'styles/brand.css', source: 'official_query' })
+    expect(task.result?.shadcn).toEqual({ status: 'not_checked' })
+    expect(task.result?.componentLibraries).toEqual([])
+    expect(task.result?.support).toEqual({
+      status: 'needs_action', blockingIssues: [], warnings: ['组件查询与最终接入判定将在后续工单完成。'],
+    })
+    expect(await readFile(path.join(ctx.directory, 'eslint.config.mjs'), 'utf8')).toContain('must never execute')
+    const [file] = await readdir(ctx.options.cacheDirectory)
+    const snapshot = await readFile(path.join(ctx.options.cacheDirectory, file!), 'utf8')
+    expect(snapshot).toContain('styles/brand.css')
+    expect(snapshot).not.toContain(ctx.options.token)
+    expect(snapshot).not.toContain(ctx.directory)
+  })
+
+  it('reports a missing install and another major version without hiding a theme file', async () => {
+    const missing = await context()
+    await writeProject(missing.directory, {
+      'package.json': '{"name":"missing-tailwind","dependencies":{"tailwindcss":"^4.0.0"}}',
+      'src/index.css': theme,
+    })
+    const missingResult = await scanDirectory(missing)
+    expect(missingResult.task.status).toBe('completed')
+    expect(missingResult.task.result?.tailwind).toEqual({ status: 'not_installed', version: null })
+    expect(missingResult.task.result?.warnings.map((warning) => warning.code)).toContain('TAILWIND_NOT_INSTALLED')
+    expect(missingResult.task.result?.theme).toEqual({ status: 'located', path: 'src/index.css', source: 'official_query' })
+    expect(missingResult.task.result?.support.blockingIssues).toEqual(['项目尚未安装样式框架。'])
+
+    const older = await context()
+    await writeProject(older.directory, {
+      'package.json': '{"name":"tailwind-three"}',
+      'node_modules/tailwindcss/package.json': tailwind('3.4.17'),
+      'src/index.css': theme,
+    })
+    const olderResult = await scanDirectory(older)
+    expect(olderResult.task.result?.tailwind).toEqual({ status: 'installed', version: '3.4.17' })
+    expect(olderResult.task.result?.warnings.map((warning) => warning.code)).toContain('TAILWIND_VERSION_UNSUPPORTED')
+    expect(olderResult.task.result?.theme).toMatchObject({ status: 'located', path: 'src/index.css' })
+    expect(olderResult.task.result?.support.status).toBe('needs_action')
+    expect(olderResult.task.result?.shadcn.status).toBe('not_checked')
+  })
+
+  it('uploads an unconfirmed version, a missing theme, and a rejected outside path', async () => {
+    const unknown = await context()
+    await writeProject(unknown.directory, {
+      'package.json': '{"name":"corrupt"}',
+      'node_modules/tailwindcss/package.json': tailwind('^4'),
+      'src/index.css': theme,
+    })
+    const unknownResult = await scanDirectory(unknown)
+    expect(unknownResult.task.result?.tailwind).toEqual({ status: 'unknown', version: null })
+    expect(unknownResult.task.result?.warnings.map((warning) => warning.code)).toContain('TAILWIND_UNKNOWN')
+    expect(unknownResult.task.result?.theme.status).toBe('located')
+
+    const absent = await context()
+    await writeProject(absent.directory, {
+      'package.json': '{"name":"no-theme"}',
+      'node_modules/tailwindcss/package.json': tailwind('4.3.3'),
+    })
+    const absentResult = await scanDirectory(absent)
+    expect(absentResult.task.result?.theme).toEqual({ status: 'not_found', path: null, source: null })
+    expect(absentResult.task.result?.support.blockingIssues).toContain('未能定位可供确认的项目主题文件。')
+
+    const outside = await context()
+    await writeProject(outside.directory, {
+      'package.json': '{"name":"outer"}',
+      'outside.css': '@theme { --color-a: red; }',
+      'child/package.json': '{"name":"child"}',
+      'child/components.json': '{"tailwind":{"css":"../outside.css"}}',
+    })
+    const outsideResult = await scanDirectory(outside, path.join(outside.directory, 'child'))
+    expect(outsideResult.task.status).toBe('completed')
+    expect(outsideResult.task.result?.theme).toEqual({ status: 'query_failed', path: null, source: null })
+    expect(outsideResult.task.result?.warnings.map((warning) => warning.code)).toContain('THEME_OUTSIDE_PROJECT')
+    expect(JSON.stringify(outsideResult.task)).not.toContain(outside.directory)
+  })
+
+  it('stops a workspace before reading its installed version or theme', async () => {
+    const ctx = await context()
+    await writeProject(ctx.directory, {
+      'package.json': '{"name":"workspace","workspaces":["apps/*"]}',
+      'apps/web/package.json': '{"name":"web"}',
+      'node_modules/tailwindcss/package.json': tailwind('4.3.3'),
+      'src/index.css': theme,
+    })
+    const { task } = await scanDirectory(ctx)
+    expect(task.status).toBe('completed')
+    expect(task.result?.tailwind.status).toBe('not_checked')
+    expect(task.result?.theme.status).toBe('not_checked')
+    expect(task.result?.shadcn.status).toBe('not_checked')
+    expect(task.result?.support.status).toBe('unsupported')
+    expect(task.result?.warnings.map((warning) => warning.code)).toContain('MONOREPO_UNSUPPORTED')
+  })
+
+  it('scans the independent test project and leaves its files unchanged', async () => {
+    const ctx = await context()
+    const project = path.resolve(root, '../lint-shadcn-tailwind-test')
+    const manifest = await readFile(path.join(project, 'package.json'), 'utf8')
+    const componentsText = await readFile(path.join(project, 'components.json'), 'utf8')
+    const components = JSON.parse(componentsText) as { tailwind: { css: string } }
+    const installed = JSON.parse(await readFile(path.join(project, 'node_modules/tailwindcss/package.json'), 'utf8')) as { version: string }
+    const { out, task } = await scanDirectory(ctx, project)
+    expect(out.stderr).toContain(`已安装样式框架版本：${installed.version}`)
+    expect(out.stderr).toContain(`官方查询选中的主题：${components.tailwind.css}；此路径未经过全项目引用审计。`)
+    expect(out.stdout + out.stderr).not.toContain(ctx.options.token)
+    expect(out.stdout + out.stderr).not.toContain(project)
+    expect(task.status).toBe('completed')
+    expect(task.result?.tailwind).toEqual({ status: 'installed', version: installed.version })
+    expect(task.result?.theme).toEqual({ status: 'located', path: components.tailwind.css, source: 'official_query' })
+    expect(task.result?.shadcn).toEqual({ status: 'not_checked' })
+    expect(task.result?.support.blockingIssues).toEqual([])
+    expect(task.result?.support.status).toBe('needs_action')
+    expect(JSON.stringify(task.result)).not.toContain(project)
+    expect(await readFile(path.join(project, 'package.json'), 'utf8')).toBe(manifest)
+    expect(await readFile(path.join(project, 'components.json'), 'utf8')).toBe(componentsText)
   })
 })
